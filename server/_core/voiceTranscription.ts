@@ -282,3 +282,48 @@ function getLanguageName(langCode: string): string {
  * });
  * ```
  */
+
+
+/** Transcribe a browser data URL directly, avoiding a storage dependency. */
+export async function transcribeAudioDataUrl(
+  audioData: string,
+  language = "ar",
+  prompt = "كلام عامي يمني، أسماء مدن ومحاصيل وأسواق يمنية",
+): Promise<TranscriptionResponse | TranscriptionError> {
+  try {
+    const match = audioData.match(/^data:(audio\/[^;]+);base64,(.+)$/i);
+    if (!match) return { error: "Invalid audio data", code: "INVALID_FORMAT" };
+
+    const [, mimeType, encoded] = match;
+    const audioBuffer = Buffer.from(encoded, "base64");
+    if (audioBuffer.byteLength > 16 * 1024 * 1024) {
+      return { error: "Audio file exceeds maximum size limit", code: "FILE_TOO_LARGE" };
+    }
+    const apiKey = ENV.openAiApiKey || ENV.forgeApiKey;
+    if (!apiKey) return { error: "Voice transcription service authentication is missing", code: "SERVICE_ERROR" };
+
+    const formData = new FormData();
+    const audioBlob = new Blob([new Uint8Array(audioBuffer)], { type: mimeType });
+    formData.append("file", audioBlob, `audio.${getFileExtension(mimeType)}`);
+    formData.append("model", "whisper-1");
+    formData.append("response_format", "verbose_json");
+    formData.append("language", language);
+    formData.append("prompt", prompt);
+
+    const endpoint = ENV.openAiApiKey
+      ? "https://api.openai.com/v1/audio/transcriptions"
+      : `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/audio/transcriptions`;
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { authorization: `Bearer ${apiKey}` },
+      body: formData,
+    });
+    if (!response.ok) {
+      return { error: "Transcription service request failed", code: "TRANSCRIPTION_FAILED", details: `${response.status} ${response.statusText}` };
+    }
+    const result = (await response.json()) as WhisperResponse;
+    return result.text ? result : { error: "Invalid transcription response", code: "SERVICE_ERROR" };
+  } catch (error) {
+    return { error: "Voice transcription failed", code: "SERVICE_ERROR", details: error instanceof Error ? error.message : "Unknown error" };
+  }
+}

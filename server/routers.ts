@@ -4,8 +4,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { invokeLLM } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
-import { transcribeAudio } from "./_core/voiceTranscription";
-import { storageGetSignedUrl, storagePut } from "./storage";
+import { transcribeAudioDataUrl } from "./_core/voiceTranscription";
 
 const yemenAiSystemPrompt = `أنت يمن AI، مساعد معرفي ودود يعرف اليمن بعمق ويتحدث بلهجة يمنية خفيفة ومفهومة لكل العرب. مهمتك الإجابة عن أسئلة اليمن: التاريخ، الجغرافيا، المدن، القبائل، العادات والتقاليد، الأكلات، اللهجات، الأدب، الفن، السياحة والطبيعة.
 
@@ -42,7 +41,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         const response = await invokeLLM({
-          model: "gpt-5-mini",
+          model: "gpt-4o-mini",
           messages: [
             { role: "system", content: yemenAiSystemPrompt },
             ...input.messages,
@@ -59,7 +58,7 @@ export const appRouter = router({
       .input(z.object({ text: z.string().trim().min(2).max(2500) }))
       .mutation(async ({ input }) => {
         const response = await invokeLLM({
-          model: "gpt-5-mini",
+          model: "gpt-4o-mini",
           messages: [
             { role: "system", content: dialectSystemPrompt },
             { role: "user", content: `النص اليمني المراد فهمه:\n${input.text}` },
@@ -75,15 +74,7 @@ export const appRouter = router({
     transcribe: publicProcedure
       .input(z.object({ audioData: z.string().startsWith("data:audio/").max(22000000) }))
       .mutation(async ({ input }) => {
-        const match = input.audioData.match(/^data:(audio\/[a-z0-9.+-]+);base64,(.+)$/i);
-        if (!match) return { text: "ما قدرت أقرأ التسجيل. جرّب تسجيله بصيغة صوتية ثانية." };
-        const [, contentType, encoded] = match;
-        const audioBuffer = Buffer.from(encoded, "base64");
-        if (audioBuffer.byteLength > 16 * 1024 * 1024) return { text: "التسجيل طويل على التحويل. خلّه أقل من ١٦ ميجابايت." };
-        const extension = contentType.includes("webm") ? "webm" : contentType.includes("ogg") ? "ogg" : "wav";
-        const stored = await storagePut(`voice/yemen-${Date.now()}.${extension}`, audioBuffer, contentType);
-        const signedUrl = await storageGetSignedUrl(stored.key);
-        const result = await transcribeAudio({ audioUrl: signedUrl, language: "ar", prompt: "كلام عامي يمني، أسماء مدن ومحاصيل وأسواق يمنية" });
+        const result = await transcribeAudioDataUrl(input.audioData, "ar", "كلام عامي يمني، أسماء مدن ومحاصيل وأسواق يمنية");
         return { text: "text" in result && result.text ? result.text : "ما سمعت كلام واضح في التسجيل." };
       }),
   }),
@@ -120,7 +111,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         const response = await invokeLLM({
-          model: "gemini-3-flash-preview",
+          model: "gpt-4o-mini",
           messages: [
             { role: "system", content: agriSystemPrompt },
             {
